@@ -1,19 +1,21 @@
 ---
 name: anki-toeic-add
-description: 透過 AnkiConnect API（localhost:8765）新增英文單字卡到使用者的 Anki TOEIC 牌組（note type：英文單字，7 個欄位）。Trigger 詞："加單字到 Anki"、"幫我加 X 到 TOEIC"、"建單字卡 X"、"新增 Anki 卡片"、"TOEIC 加卡 X"、"幫我把這幾個單字做成 anki"、"add X to my Anki"、"make a flashcard for X"、"create Anki card for word"。使用者可能只丟單字列表、句子裡的生字、或一段英文文章請你挑生字。Skill 會自動產生中文翻譯、KK 音標、詞性、字根字首拆解、例句，並呼叫 AnkiConnect 推入 TOEIC 牌組。預設不重複加同字、不問確認、不要 dry-run。
+description: 透過 AnkiConnect API（localhost:8765）新增英文單字卡到使用者的 Anki TOEIC 牌組（note type：英文單字，8 個欄位）。Trigger 詞："加單字到 Anki"、"幫我加 X 到 TOEIC"、"建單字卡 X"、"新增 Anki 卡片"、"TOEIC 加卡 X"、"幫我把這幾個單字做成 anki"、"add X to my Anki"、"make a flashcard for X"、"create Anki card for word"。使用者可能只丟單字列表、句子裡的生字、或一段英文文章請你挑生字。Skill 會自動產生中文翻譯、KK 音標、詞性、字根字首拆解、例句，並用 edge-tts 的 AvaNeural 聲音產生英文發音 mp3 嵌入卡片（不靠 Anki 內建 TTS，跨裝置都聽得到 Ava 級的聲音），最後呼叫 AnkiConnect 推入 TOEIC 牌組。預設不重複加同字、不問確認、不要 dry-run。
 ---
 
 # Anki TOEIC Add
 
-新增英文單字卡到使用者的 Anki TOEIC 牌組。整個流程：產生 7 個欄位內容 → 呼叫 AnkiConnect → 報告結果。
+新增英文單字卡到使用者的 Anki TOEIC 牌組。整個流程：產生 8 個欄位內容（含自動產 Ava 音檔）→ 呼叫 AnkiConnect → 報告結果。
 
 ## Setup state（已配置好）
 
 - Anki desktop 已安裝；AnkiConnect 插件（2055492159）已裝、在 Anki 開啟時自動於 `http://127.0.0.1:8765` 服務 HTTP API
 - 牌組：`TOEIC`
-- Note type：`英文單字`（7 欄位，順序：中文 / English / KK音標 / 發音說明 / 詞性 / 解說 / 例句）
-- 已套 2 張卡的模板（Card 1 中→英、Card 2 英→中）+ TTS 設定（中文 zh_TW、英文 en_US）
-- PowerShell 函式 `Add-AnkiCard` 在 `scripts/Add-AnkiCard.ps1`
+- Note type：`英文單字`（**8 欄位**，順序：中文 / English / KK音標 / 發音說明 / 詞性 / 解說 / 例句 / **Audio**）
+- 2 張卡的模板（Card 1 中→英、Card 2 英→中）— **英文發音改用嵌入式 mp3**（`{{Audio}}`），不再用 `{{tts en_US:English}}`。原因：AnkiMobile (iOS) 的 TTS 預設聲音沙啞，預生成 mp3 跨裝置都好聽
+- 中文那行還是 `{{tts zh_TW:中文}}`（中文不靠聽、留 TTS 省空間）
+- `uv` / `uvx` 已裝在 `C:\Users\bacon\.local\bin\`，用來免安裝跑 edge-tts
+- PowerShell 函式 `Add-AnkiCard`、`New-AnkiTtsAudio`、`Test-AnkiCardExists`、`Test-AnkiConnect` 在 `scripts/Add-AnkiCard.ps1`
 
 ## 觸發後的執行流程
 
@@ -141,6 +143,22 @@ Add-AnkiCard `
 ```powershell
 Add-AnkiCard ... -PronunNote '<b>Silent K：</b>字首 K 不發音。'
 ```
+
+## Audio 欄位 — 自動產生，不要手動傳
+
+`Add-AnkiCard` 預設會自動：
+1. 從 `-English` 參數拿單字（先把 `<b>` 等 HTML 標籤剝掉）
+2. 用 `uvx edge-tts --voice en-US-AvaNeural` 產 mp3
+3. 透過 AnkiConnect `storeMediaFile` 上傳到 Anki 媒體庫
+4. 把 `[sound:anki_toeic_<slug>.mp3]` 寫進 Audio 欄位
+
+所以**不需要手動傳 `-AudioTag`**。如果剛好你已經有現成的 sound tag（少見），可以傳 `-AudioTag '[sound:custom.mp3]'` 覆寫。
+
+如果想完全跳過音檔（例如離線、edge-tts 暫時不能用、或測試），加 `-SkipAudio` 旗標。
+
+**檔名規則**：`anki_toeic_<lowercase-alphanumeric-only>.mp3`（如 `anki_toeic_pedestrian.mp3`、`anki_toeic_kneeling.mp3`）。重複呼叫同字會直接覆蓋舊檔，不會留垃圾。
+
+**為什麼不用 `{{tts}}`**：AnkiMobile (iOS) 預設聲音沙啞、跨裝置設定地獄；預生成 mp3 走到哪聽到哪都好聽。中文 TTS 因為使用者看中文不用聽，所以 Card 1 正面還是用 `{{tts zh_TW:中文}}` 省空間。
 
 多個字直接連續呼叫（每個一行 dot-source 不必重複）：
 ```powershell

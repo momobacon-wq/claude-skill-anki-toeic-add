@@ -1,6 +1,6 @@
 # anki-toeic-add
 
-A Claude Code skill that lets Claude **add English vocabulary cards to your Anki TOEIC deck** with a single sentence like *"幫我加 pedestrian, garage 到 TOEIC"*. Claude auto-generates Chinese meaning, KK 音標 (IPA), part of speech, etymology (字根字首拆解), example sentences, and optional pronunciation tips — then pushes everything into Anki via the AnkiConnect HTTP API.
+A Claude Code skill that lets Claude **add English vocabulary cards to your Anki TOEIC deck** with a single sentence like *"幫我加 pedestrian, garage 到 TOEIC"*. Claude auto-generates Chinese meaning, KK 音標 (IPA), part of speech, etymology (字根字首拆解), example sentences, optional pronunciation tips, **and a high-quality English audio mp3 (Microsoft Azure Neural Voice "Ava" via edge-tts)** — then pushes everything into Anki via the AnkiConnect HTTP API.
 
 ## Why
 
@@ -19,12 +19,19 @@ That's it — Claude Code auto-discovers skills under `~/.claude/skills/`. Start
 - **Anki desktop** running on the same machine
 - **AnkiConnect** add-on installed (add-on code `2055492159`), which exposes a localhost HTTP API at `http://127.0.0.1:8765`
 - A deck named `TOEIC` (or edit `Add-AnkiCard`'s `-Deck` default)
-- A note type named `英文單字` with these 7 fields in order:
-  `中文 / English / KK音標 / 發音說明 / 詞性 / 解說 / 例句`
+- A note type named `英文單字` with these 8 fields in order:
+  `中文 / English / KK音標 / 發音說明 / 詞性 / 解說 / 例句 / Audio`
 - PowerShell 5.1+ (built in to Windows 10/11)
+- **uv / uvx** for ephemeral edge-tts execution — install with `winget install astral-sh.uv` if missing
 - Claude Code installed and running on the same machine
 
-The skill ships with a `scripts/Add-AnkiCard.ps1` helper exposing three functions: `Add-AnkiCard`, `Test-AnkiCardExists`, `Test-AnkiConnect`.
+The skill ships with a `scripts/Add-AnkiCard.ps1` helper exposing: `Add-AnkiCard`, `New-AnkiTtsAudio`, `Test-AnkiCardExists`, `Test-AnkiConnect`.
+
+## Audio approach
+
+Instead of relying on Anki's `{{tts}}` tag (which uses iOS/Windows OS TTS — quality varies, AnkiMobile defaults to compact Samantha which sounds robotic), this skill **pre-generates an mp3 per card** using Microsoft's free Azure Neural Voice `en-US-AvaNeural` via [`edge-tts`](https://github.com/rany2/edge-tts). The mp3 is stored in Anki's media library and embedded with `[sound:...]` in a dedicated `Audio` field. Result: ~7-10 KB per word, sounds natural on every device (iOS / Android / desktop / web), no per-platform TTS configuration needed.
+
+The Chinese TTS (for Card 1 front) still uses `{{tts zh_TW:中文}}` because the user doesn't need to hear Chinese for memorization — saves storage.
 
 ## Usage
 
