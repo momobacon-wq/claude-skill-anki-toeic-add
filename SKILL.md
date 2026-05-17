@@ -1,7 +1,18 @@
 ---
 name: anki-toeic-add
-description: 透過 AnkiConnect API（localhost:8765）新增英文單字卡到使用者的 Anki TOEIC 牌組（note type：英文單字，8 個欄位）。Trigger 詞："加單字到 Anki"、"幫我加 X 到 TOEIC"、"建單字卡 X"、"新增 Anki 卡片"、"TOEIC 加卡 X"、"幫我把這幾個單字做成 anki"、"add X to my Anki"、"make a flashcard for X"、"create Anki card for word"。使用者可能只丟單字列表、句子裡的生字、或一段英文文章請你挑生字。Skill 會自動產生中文翻譯、KK 音標、詞性、字根字首拆解、例句，並用 edge-tts 的 AvaNeural 聲音產生英文發音 mp3 嵌入卡片（不靠 Anki 內建 TTS，跨裝置都聽得到 Ava 級的聲音），最後呼叫 AnkiConnect 推入 TOEIC 牌組。預設不重複加同字、不問確認、不要 dry-run。
+description: 透過 AnkiConnect API（localhost:8765）新增英文單字卡到使用者的 Anki TOEIC 牌組（note type：英文單字，8 個欄位）。**也是 `/toeic` 斜線指令的完整實作**（`/toeic <英文單字>` 會走這個 skill）。Trigger 詞包括："加單字到 Anki"、"幫我加 X 到 TOEIC"、"建單字卡 X"、"新增 Anki 卡片"、"TOEIC 加卡 X"、"幫我把這幾個單字做成 anki"、"add X to my Anki"、"make a flashcard for X"、"create Anki card for word"。使用者可能只丟單字列表、句子裡的生字、或一段英文文章請你挑生字。Skill 會自動產生中文翻譯、KK 音標、詞性、字根字首拆解、例句，並用 edge-tts 的 AvaNeural 聲音產生英文發音 mp3 嵌入卡片（不靠 Anki 內建 TTS，跨裝置都聽得到 Ava 級的聲音），最後呼叫 AnkiConnect 推入 TOEIC 牌組。預設不重複加同字、不問確認、不要 dry-run。
 ---
+
+## 解析使用者輸入
+
+不論觸發來源是 `/toeic <args>`、自然語言（"幫我加 X 到 TOEIC"），或從文章中挑字，輸入處理一致：
+
+- 單字列表：`ubiquitous`、`ubiquitous, diligent, mitigate`、`ubiquitous diligent` 都接受
+- 中文導引混雜英文：`加 mitigate, advocate` — 抽出 `mitigate`、`advocate`
+- 一段英文文章（>30 詞）：改用「挑出 5-10 個 TOEIC 等級的關鍵生字」模式 — 先**列建議單字請使用者確認**，再批次加（這是少數需要確認的情境）
+- 輸入為空：請使用者補單字
+
+抽 token 規則：regex `[A-Za-z][A-Za-z\-]*`；過濾常見導引詞（toeic、anki、word、add、card、flashcard、make、create、TOEIC、Anki 等）。
 
 # Anki TOEIC Add
 
