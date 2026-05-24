@@ -170,3 +170,68 @@ function Test-AnkiConnect {
         return [PSCustomObject]@{ ok = $false; error = $_.Exception.Message }
     }
 }
+
+function Start-AnkiIfNotRunning {
+    <#
+    Ensures Anki desktop is running with AnkiConnect responding on $Uri.
+    Flow:
+      1. If AnkiConnect already responding -> return ok immediately (no launch)
+      2. Else locate anki.exe in standard Windows install paths and Start-Process it
+      3. Poll AnkiConnect every 2s up to $TimeoutSeconds (default 60) for it to come online
+    Returns: [PSCustomObject]@{ ok=$bool; launched=$bool; version=<int|$null>; waitedSeconds=<int>; error=<string|$null> }
+    #>
+    [CmdletBinding()]
+    param(
+        [string]$Uri = 'http://127.0.0.1:8765',
+        [int]$TimeoutSeconds = 60,
+        [string[]]$ExtraPaths = @()
+    )
+
+    # 1. Already running?
+    $first = Test-AnkiConnect -Uri $Uri
+    if ($first.ok) {
+        return [PSCustomObject]@{
+            ok = $true; launched = $false; version = $first.version; waitedSeconds = 0; error = $null
+        }
+    }
+
+    # 2. Find anki.exe
+    $candidates = @(
+        "$env:LOCALAPPDATA\Programs\Anki\anki.exe",
+        "$env:ProgramFiles\Anki\anki.exe",
+        "${env:ProgramFiles(x86)}\Anki\anki.exe"
+    ) + $ExtraPaths
+    $exe = $candidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+    if (-not $exe) {
+        return [PSCustomObject]@{
+            ok = $false; launched = $false; version = $null; waitedSeconds = 0
+            error = "anki.exe not found in standard paths: $($candidates -join '; '). Install Anki desktop or pass -ExtraPaths."
+        }
+    }
+
+    try {
+        Start-Process -FilePath $exe -ErrorAction Stop | Out-Null
+    } catch {
+        return [PSCustomObject]@{
+            ok = $false; launched = $false; version = $null; waitedSeconds = 0
+            error = "Failed to launch '$exe': $($_.Exception.Message)"
+        }
+    }
+
+    # 3. Poll for AnkiConnect
+    $polls = [Math]::Max(1, [int]($TimeoutSeconds / 2))
+    for ($i = 1; $i -le $polls; $i++) {
+        Start-Sleep -Seconds 2
+        $r = Test-AnkiConnect -Uri $Uri
+        if ($r.ok) {
+            return [PSCustomObject]@{
+                ok = $true; launched = $true; version = $r.version; waitedSeconds = $i * 2; error = $null
+            }
+        }
+    }
+
+    return [PSCustomObject]@{
+        ok = $false; launched = $true; version = $null; waitedSeconds = $TimeoutSeconds
+        error = "Anki launched from '$exe' but AnkiConnect did not respond within ${TimeoutSeconds}s. Is AnkiConnect add-on (2055492159) installed?"
+    }
+}
