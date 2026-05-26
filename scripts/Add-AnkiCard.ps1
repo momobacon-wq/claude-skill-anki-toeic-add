@@ -26,11 +26,30 @@ function New-AnkiTtsAudio {
     New-Item -ItemType Directory -Path $workDir -Force | Out-Null
     $mp3Path = Join-Path $workDir $filename
 
-    # Generate mp3 via edge-tts (run as ephemeral uvx tool — no permanent Python install needed)
-    $null = uvx --quiet --from edge-tts edge-tts `
-        --voice $Voice `
-        --text $Word `
-        --write-media $mp3Path 2>&1
+    # Generate mp3 via edge-tts. Prefer uvx (ephemeral, no install) but fall back
+    # to `python -m edge_tts` if uvx isn't on PATH (e.g. machine has pip-installed edge-tts).
+    # edge-tts uses wss:// which corporate squid blocks — if HTTPS_PROXY/HTTP_PROXY is set,
+    # pass it through via --proxy so the websocket can tunnel.
+    $proxyArgs = @()
+    $envProxy = if ($env:HTTPS_PROXY) { $env:HTTPS_PROXY } elseif ($env:HTTP_PROXY) { $env:HTTP_PROXY } else { '' }
+    if ($envProxy) { $proxyArgs = @('--proxy', $envProxy) }
+
+    if (Get-Command uvx -ErrorAction SilentlyContinue) {
+        $null = uvx --quiet --from edge-tts edge-tts `
+            @proxyArgs `
+            --voice $Voice `
+            --text $Word `
+            --write-media $mp3Path 2>&1
+    } elseif (Get-Command python -ErrorAction SilentlyContinue) {
+        $null = python -m edge_tts `
+            @proxyArgs `
+            --voice $Voice `
+            --text $Word `
+            --write-media $mp3Path 2>&1
+    } else {
+        Write-Error "Neither 'uvx' nor 'python' is available to run edge-tts."
+        return $null
+    }
 
     if (-not (Test-Path $mp3Path)) {
         Write-Error "edge-tts failed to produce $mp3Path for word '$Word'"
@@ -47,7 +66,7 @@ function New-AnkiTtsAudio {
 
     try {
         $r = Invoke-RestMethod -Uri $Uri -Method Post -Body $payload `
-            -ContentType 'application/json' -TimeoutSec 15
+            -ContentType 'application/json' -TimeoutSec 15 -NoProxy
     } catch {
         Write-Error "AnkiConnect storeMediaFile failed: $($_.Exception.Message)"
         return $null
@@ -74,6 +93,9 @@ function Add-AnkiCard {
         [Parameter(Mandatory)][string]$PartOfSpeech,
         [Parameter(Mandatory)][string]$Etymology,
         [Parameter(Mandatory)][string]$Examples,
+        [Parameter(Mandatory)][string]$Collocations,
+        [Parameter(Mandatory)][string]$Synonyms,
+        [Parameter(Mandatory)][string]$TOEICContext,
         [string]$PronunNote = '',
         [string]$AudioTag = '',    # pre-built [sound:...] tag if you have one; empty = auto-generate
         [switch]$SkipAudio,         # skip audio generation entirely (Audio field will be empty)
@@ -102,14 +124,17 @@ function Add-AnkiCard {
                 deckName  = $Deck
                 modelName = $Model
                 fields    = @{
-                    '中文'     = $Chinese
-                    'English'  = $English
-                    'KK音標'   = $KK
-                    '發音說明' = $PronunNote
-                    '詞性'     = $PartOfSpeech
-                    '解說'     = $Etymology
-                    '例句'     = $Examples
-                    'Audio'    = $AudioTag
+                    '中文'       = $Chinese
+                    'English'    = $English
+                    'KK音標'     = $KK
+                    '發音說明'   = $PronunNote
+                    '詞性'       = $PartOfSpeech
+                    '解說'       = $Etymology
+                    '例句'       = $Examples
+                    '常用搭配'   = $Collocations
+                    '同義字反義' = $Synonyms
+                    '多益情境'   = $TOEICContext
+                    'Audio'      = $AudioTag
                 }
                 tags    = $Tags
                 options = @{ allowDuplicate = $false }
@@ -119,7 +144,7 @@ function Add-AnkiCard {
 
     try {
         $r = Invoke-RestMethod -Uri $Uri -Method Post -Body $payload `
-            -ContentType 'application/json' -TimeoutSec 15
+            -ContentType 'application/json' -TimeoutSec 15 -NoProxy
     } catch {
         return [PSCustomObject]@{
             word = $English; status = 'connection_error'; noteId = $null; error = $_.Exception.Message
@@ -153,7 +178,7 @@ function Test-AnkiCardExists {
     $payload = @{ action = 'findNotes'; version = 6; params = @{ query = $q } } | ConvertTo-Json -Depth 4 -Compress
     try {
         $r = Invoke-RestMethod -Uri $Uri -Method Post -Body $payload `
-            -ContentType 'application/json' -TimeoutSec 10
+            -ContentType 'application/json' -TimeoutSec 10 -NoProxy
     } catch { return $null }
     return ($r.result.Count -gt 0)
 }
@@ -164,7 +189,7 @@ function Test-AnkiConnect {
     try {
         $r = Invoke-RestMethod -Uri $Uri -Method Post `
             -Body '{"action":"version","version":6}' `
-            -ContentType 'application/json' -TimeoutSec 3
+            -ContentType 'application/json' -TimeoutSec 3 -NoProxy
         return [PSCustomObject]@{ ok = $true; version = $r.result }
     } catch {
         return [PSCustomObject]@{ ok = $false; error = $_.Exception.Message }
